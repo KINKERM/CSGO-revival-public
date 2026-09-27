@@ -582,6 +582,7 @@ def write_launcher_cfg(csgo_dir: str, steam_id: str) -> str:
 def main() -> None:
     print("=" * 62)
     print("  CS:GO Revival - automatic setup")
+    print("  Installer build: PBIN-FIX-20260927-1")
     print("=" * 62)
 
     csgo_dir = find_csgo_dir()
