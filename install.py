@@ -45,6 +45,7 @@ PACK_URL = "https://github.com/KINKERM/CSGO-revival-public/releases/download/csg
 INSERTION2_WORKSHOP_IDS = ("2395333051", "2760936305")
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 SEVENZR_URL = "https://github.com/ip7z/7zip/releases/download/26.03/7zr.exe"
+PUBLIC_LAUNCHER_URL = "https://raw.githubusercontent.com/KINKERM/CSGO-revival-public/main/launcher.py"
 # ==========================================================================
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -612,6 +613,18 @@ def main() -> None:
             sys.exit(1)
 
     install_pack(csgo_dir)
+
+    # Always refresh the tiny launcher script from the public repo so launcher
+    # bugfixes do not require re-uploading the multi-megabyte release pack.
+    public_launcher = os.path.join(csgo_dir, "revival", "launcher.py")
+    try:
+        os.makedirs(os.path.dirname(public_launcher), exist_ok=True)
+        with open(public_launcher, "wb") as fh:
+            fh.write(download(PUBLIC_LAUNCHER_URL))
+        log("updated public launcher runtime.")
+    except Exception as exc:
+        log(f"could not refresh launcher.py; using packed copy: {exc}")
+
     install_insertion2(csgo_dir)
     cfg = write_launcher_cfg(csgo_dir, steam_id)
 
