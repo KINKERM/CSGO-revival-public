@@ -1,21 +1,3 @@
-#!/usr/bin/env python3
-"""Python launcher for CS:GO Revival (no C++ compiler needed).
-
-Normal run (python launcher.py):
-  1. fetch the player's inventory from the revival server
-  2. write it to <csgo_dir>/csgo_gc/inventory.txt
-  3. launch CS:GO Legacy
-  4. if a sync_token is configured: wait for the game to close, then upload the
-     (now updated) inventory.txt back to the server so opened cases, new skins
-     and equips PERSIST for next time.
-
-Manual sync-back (python launcher.py --upload):
-  Just read the local inventory.txt and upload it. Use this if you launched the
-  game some other way (e.g. Steam) and want to save what changed.
-
-Uses only the Python standard library.
-"""
-
 from __future__ import annotations
 
 import base64
@@ -152,7 +134,6 @@ def inventory_path(config: dict) -> str:
 
 
 def _operation_selection_from_inventory_bytes(body: bytes) -> tuple[int, int]:
-    """Return (mission_card, selected_quest) from revival inventory text."""
     text = body.decode("utf-8", "replace")
     pos = text.find('"operation_riptide"')
     if pos < 0:
@@ -213,7 +194,6 @@ def fetch_inventory(config: dict) -> bool:
 
 
 def upload_inventory(config: dict) -> None:
-    """Upload the local inventory.txt back to the server (persistence)."""
     if not config["sync_token"]:
         print("[launcher] no sync_token set - skipping upload (persistence off).")
         return
@@ -226,9 +206,7 @@ def upload_inventory(config: dict) -> None:
     with open(path, "rb") as fh:
         body = fh.read()
 
-    # This is deliberately printed on every matchmaking-triggered upload. It
-    # proves whether the mission click reached persistent GC state BEFORE the
-    # laptop allocation starts, so a broken mission never looks like a HUD bug.
+
     _print_operation_selection(body, "before upload")
 
     req = urllib.request.Request(
@@ -271,9 +249,8 @@ def _operation_bridge_paths(config: dict) -> list[str]:
 
 
 def _write_operation_bridge(config: dict, marker: str) -> None:
-    # csgo_gc uses std::ifstream with a process-relative path. Legacy Source
-    # can change cwd during bootstrap, so write every harmless candidate rather
-    # than guessing which directory is active at the exact click frame.
+
+
     for path in _operation_bridge_paths(config):
         try:
             _atomic_write_text(path, marker)
@@ -282,8 +259,8 @@ def _write_operation_bridge(config: dict, marker: str) -> None:
 
 
 def _console_log_paths(config: dict) -> list[str]:
-    # Source writes console.log through the GAME filesystem. Legacy installs
-    # normally land it under csgo\, but keep the root candidate too.
+
+
     return [
         os.path.join(config["csgo_dir"], "csgo", "console.log"),
         os.path.join(config["csgo_dir"], "console.log"),
@@ -298,8 +275,8 @@ def _read_latest_operation_selection(config: dict) -> tuple[int, int, int] | Non
         try:
             size = os.path.getsize(path)
             with open(path, "rb") as fh:
-                # Only the recent console tail matters and avoids repeatedly
-                # scanning a multi-megabyte debug log.
+
+
                 fh.seek(max(0, size - 262144))
                 text = fh.read().decode("utf-8", "replace")
         except OSError:
@@ -373,7 +350,7 @@ def _wait_for_operation_selection_persist(
             "so persistence was rejected after parsing."
         )
 
-    # Surface the GC's own reason from the same condebug log Panorama uses.
+
     operation_lines: list[str] = []
     for log_path in _console_log_paths(config):
         try:
@@ -449,9 +426,8 @@ def _http_json(method: str, url: str, payload: dict | None = None) -> dict:
 
 
 def _write_mm_state(config: dict, state: dict) -> None:
-    # 9107 carries both a printable server address and a numeric direct UDP IP.
-    # playit normally gives us a hostname, so resolve it here rather than inside
-    # the injected GC DLL.
+
+
     state = dict(state)
     host = str(state.get("public_host") or "").strip()
     if host and not state.get("direct_udp_ip"):
@@ -508,9 +484,8 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
 
     while not stop_event.wait(0.05):
         try:
-            # Panorama prints the exact selected Riptide mission to console.log.
-            # Relay that marker into a plain OS file the injected GC already
-            # polls. This avoids relying on Source's virtual con_logfile path.
+
+
             last_operation_selection = _relay_operation_selection(
                 config, last_operation_selection
             )
@@ -525,13 +500,11 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
                 request = _read_kv(request_path)
                 action = request.get("action", "")
                 if action == "start":
-                    # If this queue came from an Operation click, do not allow
-                    # allocation until the injected GC has actually persisted
-                    # that exact card+quest. This prevents the old failure mode
-                    # where a mission click silently became ordinary Competitive.
+
+
                     if last_operation_selection:
-                        # Re-write once at queue time in case the GC consumed an
-                        # earlier path before Panorama finished the click.
+
+
                         season, card, quest = last_operation_selection
                         _write_operation_bridge(
                             config,
@@ -540,14 +513,11 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
                         if not _wait_for_operation_selection_persist(
                             config, last_operation_selection
                         ):
-                            # Keep the backend completely untouched. The game's
-                            # local queue UI can be cancelled/retried after the
-                            # bridge problem is fixed; never allocate a wrong match.
+
+
                             continue
 
-                    # Equip + Operation changes are persisted by the injected GC.
-                    # Push that exact current inventory before allocation so the
-                    # laptop receives the same selected mission.
+
                     upload_inventory(config)
                     state = _http_json(
                         "POST", base + "/matchmaking/start",
@@ -596,17 +566,14 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
                 )
                 _write_mm_state(config, state)
 
-                # Live Operation SO updates are written by csgo_gc shortly after
-                # mm_state.txt changes. Schedule a sync-back slightly later so
-                # round progress survives relaunches/backend refreshes instead
-                # of only being uploaded when the whole game closes.
+
                 live_rounds = int(state.get("live_rounds_won") or 0)
                 if live_rounds > last_live_rounds_seen:
                     last_live_rounds_seen = live_rounds
                     progress_upload_due = time.monotonic() + 1.5
 
                 if state.get("state") in ("reserved", "in_match"):
-                    # Keep polling slowly so reconnect/end state stays fresh.
+
                     pass
                 elif state.get("state") == "idle":
                     searching = False
@@ -619,9 +586,7 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
                 upload_inventory(config)
                 progress_upload_due = 0.0
 
-            # Match-end rewards must keep flowing after the queue state becomes
-            # idle. Only fetch the next server packet once the DLL consumed the
-            # previous local spool file.
+
             reward_path = _mm_reward_path(config)
             if not os.path.exists(reward_path):
                 reward = _http_json(
@@ -636,8 +601,8 @@ def matchmaking_bridge(config: dict, stop_event: threading.Event) -> None:
                         "match-end reward packet"
                     )
         except (OSError, ValueError, urllib.error.URLError) as exc:
-            # Matchmaking should recover automatically when the backend/tunnel
-            # comes back; do not kill the launcher or the running game.
+
+
             print(f"[launcher] matchmaking bridge retrying after: {exc}")
             stop_event.wait(1.0)
 
@@ -649,7 +614,7 @@ def launch_and_wait(config: dict, cfg_path: str) -> None:
         print("[launcher] check csgo_dir / game_exe in your config.")
         sys.exit(3)
 
-    # Clear stale matchmaking/mission bridge state before this session.
+
     for path in (
         _mm_request_path(config),
         _mm_state_path(config),
@@ -660,9 +625,7 @@ def launch_and_wait(config: dict, cfg_path: str) -> None:
         except OSError:
             pass
 
-    # Force a fresh Source console.log. popup_activate_mission.js already emits
-    # REVIVAL_MISSION_SELECT_V1 through $.Msg; condebug makes that observable by
-    # the launcher without another DLL/Panorama rebuild.
+
     for path in _console_log_paths(config):
         try:
             os.remove(path)
@@ -720,7 +683,7 @@ def launch_and_wait(config: dict, cfg_path: str) -> None:
         print("[launcher] game closed. No sync_token set, so inventory persistence is off.")
         return
 
-    # give csgo_gc a moment to finish writing inventory.txt on exit
+
     time.sleep(2)
     print("[launcher] game closed - saving your inventory back to the server.")
     upload_inventory(config)
@@ -738,7 +701,7 @@ def main() -> None:
     refresh_client_bootstrap(config, cfg_path)
 
     if upload_only:
-        # just push the local inventory back (e.g. after launching via Steam)
+
         upload_inventory(config)
         return
 
