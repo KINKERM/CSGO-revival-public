@@ -1,24 +1,3 @@
-#!/usr/bin/env python3
-"""CS:GO Revival - one-click auto-installer for friends.
-
-A friend runs this ONE file and it will, with no manual editing:
-  1. auto-detect their CS:GO Legacy install (via Steam's libraryfolders.vdf)
-  2. auto-detect their SteamID64 (via Steam's loginusers.vdf / registry)
-  3. download the revival "pack" (patched csgo_gc + our tuned config.txt + our
-     custom items_game.txt with Kinkerm's Case and everything we added) and
-     overlay the revival files into the CS:GO install without replacing stock csgo.exe
-  4. write launcher.cfg for them (server pre-filled)
-  5. sync their inventory from the server and launch the game (Steam P2P ready)
-
-Everyone who runs this ends up on the *same* csgo_gc build + config + items, which
-is exactly what Steam P2P lobbies need to be compatible.
-
-HOST: edit the two constants below once, then share this single file (plus a
-published pack zip - see launcher/build_pack.py) with your friends.
-
-Standard library only. Works on Windows / Linux / macOS.
-"""
-
 from __future__ import annotations
 
 import io
@@ -33,20 +12,16 @@ import tempfile
 import urllib.request
 import urllib.error
 
-# ==========================================================================
-# HOST CONFIG - edit these two once, then hand this file to your friends.
-# ==========================================================================
-# Your inventory server (Tailscale Funnel public HTTPS URL -> local :8787):
+
 SERVER_URL = "https://cuckersfun.tail52305f.ts.net"
-# The published pack zip (a GitHub Release asset works great). It must extract
-# so that csgo_gc/csgo_gc.dll / config.txt / items_game.txt land in the CS:GO install.
-# See launcher/build_pack.py to build & upload it.
+
+
 PACK_URL = "https://github.com/KINKERM/CSGO-revival-public/releases/download/csgorevival/csgo-revival-pack.zip"
 INSERTION2_WORKSHOP_IDS = ("2395333051", "2760936305")
 STEAMCMD_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip"
 SEVENZR_URL = "https://github.com/ip7z/7zip/releases/download/26.03/7zr.exe"
 PUBLIC_LAUNCHER_URL = "https://raw.githubusercontent.com/KINKERM/CSGO-revival-public/main/launcher.py"
-# ==========================================================================
+
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 CSGO_APP_DIRS = ("csgo legacy", "Counter-Strike Global Offensive")
@@ -56,9 +31,6 @@ def log(msg: str) -> None:
     print(f"[install] {msg}", flush=True)
 
 
-# ---------------------------------------------------------------------------
-# tiny VDF helpers (regex-based; good enough for the two files we read)
-# ---------------------------------------------------------------------------
 def _vdf_pairs(text: str) -> list[tuple[str, str]]:
     return re.findall(r'"([^"]+)"\s+"([^"]*)"', text)
 
@@ -67,7 +39,7 @@ def steam_root() -> str | None:
     candidates: list[str] = []
     if sys.platform.startswith("win"):
         try:
-            import winreg  # type: ignore
+            import winreg
             for hive, key in ((winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam"),
                               (winreg.HKEY_LOCAL_MACHINE, r"Software\WOW6432Node\Valve\Steam")):
                 try:
@@ -86,7 +58,7 @@ def steam_root() -> str | None:
         candidates += [
             os.path.expanduser("~/.steam/steam"),
             os.path.expanduser("~/.local/share/Steam"),
-            os.path.expanduser("~/.var/app/com.valvesoftware.Steam/data/Steam"),  # flatpak
+            os.path.expanduser("~/.var/app/com.valvesoftware.Steam/data/Steam"),
         ]
     for c in candidates:
         if c and os.path.isdir(os.path.join(c, "steamapps")):
@@ -95,7 +67,6 @@ def steam_root() -> str | None:
 
 
 def library_paths(root: str) -> list[str]:
-    """All Steam library roots (steamapps folders) from libraryfolders.vdf."""
     libs = [os.path.join(root, "steamapps")]
     vdf = os.path.join(root, "steamapps", "libraryfolders.vdf")
     if os.path.exists(vdf):
@@ -106,7 +77,7 @@ def library_paths(root: str) -> list[str]:
                 p = os.path.join(val, "steamapps")
                 if os.path.isdir(p):
                     libs.append(os.path.normpath(p))
-    # de-dup preserving order
+
     seen, out = set(), []
     for p in libs:
         if p not in seen:
@@ -136,7 +107,7 @@ def find_steamid64() -> str | None:
         return None
     with open(login, "r", encoding="utf-8", errors="replace") as fh:
         text = fh.read()
-    # blocks look like:  "76561198...."  {  ... "MostRecent" "1" ... }
+
     best = None
     for m in re.finditer(r'"(7656119\d{10})"\s*\{(.*?)\}', text, re.DOTALL):
         sid, body = m.group(1), m.group(2)
@@ -156,9 +127,6 @@ def prompt(question: str, default: str = "") -> str:
     return ans or default
 
 
-# ---------------------------------------------------------------------------
-# download + extract the pack
-# ---------------------------------------------------------------------------
 def download(url: str) -> bytes:
     log(f"downloading {url}")
     req = urllib.request.Request(url, headers={"User-Agent": "csgo-revival-installer"})
@@ -181,7 +149,7 @@ def _find_7zip() -> str | None:
         if path and os.path.isfile(path):
             return path
 
-    # Fully unattended fallback: fetch the official standalone 7zr.exe.
+
     if sys.platform.startswith("win"):
         base = os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
         tools_dir = os.path.join(base, "CSGO-Revival", "tools")
@@ -251,7 +219,6 @@ def _workshop_item_dirs() -> list[str]:
 
 
 def _copy_insertion2_payload(src_root: str, csgo_dir: str) -> bool:
-    """Install the complete Insertion II payload, not only the BSP."""
     bsp = ""
     for base, dirs, files in os.walk(src_root):
         for name in files:
@@ -267,9 +234,7 @@ def _copy_insertion2_payload(src_root: str, csgo_dir: str) -> bool:
     maps_dir = os.path.join(csgo_root, "maps")
     os.makedirs(maps_dir, exist_ok=True)
 
-    # Copy every map companion sitting next to the BSP. The NAV is required in
-    # practice: otherwise Legacy Source can sit forever at
-    # "Downloading maps/cs_insertion2.nav... 0%".
+
     bsp_dir = os.path.dirname(bsp)
     copied = []
     for name in os.listdir(bsp_dir):
@@ -280,18 +245,16 @@ def _copy_insertion2_payload(src_root: str, csgo_dir: str) -> bool:
                 shutil.copy2(src, os.path.join(maps_dir, name))
                 copied.append(name)
 
-    # Determine the payload's csgo/game root from the directory that owns maps/.
+
     payload_game_root = os.path.dirname(bsp_dir) if os.path.basename(bsp_dir).lower() == "maps" else src_root
 
-    # Preserve optional supporting content from Workshop/legacy archives.
-    # Copying these directories is safe because this payload is dedicated to
-    # Insertion II and avoids missing radar/overview/material resources.
+
     for folder in ("materials", "models", "resource", "scripts", "sound"):
         src = os.path.join(payload_game_root, folder)
         if os.path.isdir(src):
             shutil.copytree(src, os.path.join(csgo_root, folder), dirs_exist_ok=True)
 
-    # Some archives add map sidecars under a second maps/ path.
+
     src_maps = os.path.join(payload_game_root, "maps")
     if os.path.isdir(src_maps) and os.path.normcase(src_maps) != os.path.normcase(bsp_dir):
         for name in os.listdir(src_maps):
@@ -357,7 +320,7 @@ def install_insertion2(csgo_dir: str) -> None:
         log("installed Insertion II from your existing Steam Workshop cache.")
         return
 
-    # Direct path: use Valve SteamCMD so users do NOT need the CS2 client installed.
+
     for wid in INSERTION2_WORKSHOP_IDS:
         item_dir = _steamcmd_item_dir(wid)
         if not item_dir:
@@ -412,9 +375,7 @@ def repack_panorama(csgo_dir: str, zf: zipfile.ZipFile) -> None:
         log(f"pbin.py unpack failed with exit code {unpack.returncode}")
         sys.exit(3)
 
-    # Overlay the Panorama source directly from the downloaded pack into the
-    # freshly unpacked PBIN staging tree. This also preserves nested panorama/
-    # content without relying on the loose install tree.
+
     prefix = "csgo/panorama/"
     for member in zf.infolist():
         name = member.filename.replace("\\", "/")
@@ -431,8 +392,7 @@ def repack_panorama(csgo_dir: str, zf: zipfile.ZipFile) -> None:
         with zf.open(member) as src, open(dest, "wb") as out:
             shutil.copyfileobj(src, out)
 
-    # Legacy PBIN has fixed per-script capacities. Mirror the host repacker's
-    # compaction so public installs fit the same slots as the tested host build.
+
     xml_path = os.path.join(stage_dir, "layout", "mainmenu_play.xml")
     js_path = os.path.join(stage_dir, "scripts", "mainmenu_play.js")
     css_path = os.path.join(stage_dir, "styles", "mainmenu_play.css")
@@ -454,8 +414,7 @@ def repack_panorama(csgo_dir: str, zf: zipfile.ZipFile) -> None:
     with open(xml_path, "w", encoding="utf-8", newline="") as fh:
         fh.write(xml)
 
-    # Match REPACK_PANORAMA.ps1 exactly: first do the conservative trim pass on
-    # every Operation/mission file touched by the revival.
+
     conservative_paths = (
         js_path,
         css_path,
@@ -476,8 +435,7 @@ def repack_panorama(csgo_dir: str, zf: zipfile.ZipFile) -> None:
         with open(path, "w", encoding="utf-8", newline="") as fh:
             fh.write(compact)
 
-    # Tight PBIN slots need the same aggressive pass as the host compiler:
-    # strip indentation, blank lines, and whole-line // comments only.
+
     aggressive_paths = (
         activate_mission_js,
         hud_mission_js,
@@ -546,7 +504,7 @@ def install_pack(csgo_dir: str) -> None:
 
     log(f"got {len(blob)} bytes; extracting into {csgo_dir}")
     with zipfile.ZipFile(io.BytesIO(blob)) as zf:
-        # basic zip-slip guard
+
         base = os.path.abspath(csgo_dir)
         for member in zf.namelist():
             dest = os.path.abspath(os.path.join(csgo_dir, member))
@@ -606,8 +564,7 @@ def main() -> None:
 
     install_pack(csgo_dir)
 
-    # Always refresh the tiny launcher script from the public repo so launcher
-    # bugfixes do not require re-uploading the multi-megabyte release pack.
+
     public_launcher = os.path.join(csgo_dir, "revival", "launcher.py")
     try:
         os.makedirs(os.path.dirname(public_launcher), exist_ok=True)
@@ -621,13 +578,12 @@ def main() -> None:
     cfg = write_launcher_cfg(csgo_dir, steam_id)
 
     log("setup complete. Syncing inventory and launching...")
-    # The public launcher runtime is shipped inside the release pack, so
-    # install.py is genuinely the only file a new player needs beforehand.
+
+
     launcher = os.path.join(csgo_dir, "revival", "launcher.py")
     if os.path.exists(launcher):
-        # Run the installed launcher in this same Python process. This avoids a
-        # Windows argv quoting edge case where "C:\\Program Files\\..." was
-        # being split and Python tried to open "C:\\program".
+
+
         sys.argv = [launcher, cfg]
         runpy.run_path(launcher, run_name="__main__")
     else:
